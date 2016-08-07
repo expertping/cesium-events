@@ -1,0 +1,25 @@
+{
+  "name": "cesium-events",
+  "version": "1.0.0",
+  "description": "Handy chaining event API for CesiumJS",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keann/cesium-events.git"
+  },
+  "keywords": [
+    "cesium",
+    "cesiumjs",
+    "event",
+    "events"
+  ],
+  "author": "keann",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/keann/cesium-events/issues"
+  },
+  "homepage": "https://github.com/keann/cesium-events#readme"
+}
