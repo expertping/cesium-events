@@ -1,206 +1,171 @@
 
-  const CSM_EVENTS = new Set([
-          'LEFT_CLICK', 'LEFT_DOUBLE_CLICK', 'LEFT_DOWN', 'LEFT_UP', 'MOUSE_MOVE',
-          'RIGHT_CLICK', 'RIGHT_DOUBLE_CLICK', 'RIGHT_DOWN', 'RIGHT_UP', 'WHEEL'
-        ])
-      , CAM_EVENTS = new Set([
-          'CAMERA_START', 'CAMERA_MOVE', 'CAMERA_STOP'
-        ])
-      , SCN_EVENTS = new Map([
-          ['BEFORE_RENDER', 'preRender'],
-          ['AFTER_RENDER', 'postRender'],
-          ['MORPH_START', 'morphStart'],
-          ['MORPH_COMPLETE', 'morphComplete']
-        ]);
+import {isString, isFunction} from 'underscore';
+import InstancesEvents from './instances';
 
-  let clbID = 0;
+const CSM_EVENTS = new Set([
+        'LEFT_CLICK', 'LEFT_DOUBLE_CLICK', 'LEFT_DOWN', 'LEFT_UP', 'MOUSE_MOVE',
+        'RIGHT_CLICK', 'RIGHT_DOUBLE_CLICK', 'RIGHT_DOWN', 'RIGHT_UP', 'WHEEL'
+      ])
+    , CAM_EVENTS = new Set([
+        'CAMERA_START', 'CAMERA_MOVE', 'CAMERA_STOP'
+      ])
+    , SCN_EVENTS = new Map([
+        ['BEFORE_RENDER', 'preRender'],
+        ['AFTER_RENDER', 'postRender'],
+        ['MORPH_START', 'morphStart'],
+        ['MORPH_COMPLETE', 'morphComplete']
+      ])
+    ;
 
-  class Events(CesiumGlobal, ViewerInstance) {
-    let csmCallbacks = {}
-      , scnCallbacks = {}
-      , camCallbacks = {}
-      , camMove = false;
-
-    on(event, clb) => {
-      if (!_.isString(event) || !_.isFunction(clb)){
-        console.error('Invalid params');
-        return this;
+const requestAnimationFrame = function(callback){
+        return (window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame)(callback);
       }
-      clb._id = clbID++;
-
-      let startGroup = !('_group' in this)
-        , push = true;
-
-      if (_.contains(this._csmEvents, event)) {
-        this._csmCallbacks[event].push(clb);
-      } else if (_.contains(this._camEvents, event)) {
-        this._camCallbacks[event].push(clb);
-      } else if (event in this._scnEvents) {
-        this._scnCallbacks[event].push(clb);
-      } else if (event in this._kbrdEvents) {
-        var code = this._kbrdEvents[event],
-        clbs = this._kbrdCallbacks;
-        !clbs[code] && (clbs[code] = []);
-        clbs[code].push(clb);
-      } else if (event === 'UNLOAD') {
-        push = false;
-      $(window).bind('beforeunload', clb);
-      } else {
-        push = false;
-      console.error('Unknown Core.event: ' + event);
+    , cancelAnimationFrame = function(t){
+        return (window.cancelRequestAnimationFrame || window.mozCancelRequestAnimationFrame || window.webkitCancelRequestAnimationFrame)(t);
       }
+    ;
 
-      if (startGroup) {
-        var group = _.extend({}, this, { _group: [] });
-        push && group._group.push(clb._id);
-        group.off = function(){
-        var self = this;
-        _.each(['_csmCallbacks', '_camCallbacks', '_kbrdCallbacks', '_scnCallbacks'], function(list){
-        for (var evt in self[list]) {
-        self[list][evt] = _.filter(self[list][evt], function(clb){
-            return !~self._group.indexOf(clb._id);
+const clbIdProp = Symbol('callbackID');
+
+
+/* ---------- */
+
+
+let clbIdGen = 0
+  , camMove = false
+  ;
+
+let Cesium = null
+  , Viewer = null
+  ;
+
+let cursor = {
+  _offset: null,
+  get offset(){
+    return this._offset;
+  },
+  get cartesian(){
+    var offset = this.offset;
+    return offset && core.viewer.camera.pickEllipsoid(offset);
+  },
+  get degrees(){
+    var cartesian = this.cartesian
+      , radians = cartesian && Cesium.Ellipsoid.WGS84.cartesianToCartographic(cartesian);
+    return radians && [Cesium.Math.toDegrees(radians.longitude), Cesium.Math.toDegrees(radians.latitude)];
+  }
+};
+
+
+/* ---------- */
+
+
+class CallbackStore {
+  constructor(){
+    this.store = new Map();
+  }
+
+  take(event){
+    return this.store.get(event);
+  }
+
+  put(event, callback){
+    if (!this.store.has(event))
+      this.store.set(event, new Set());
+    return this.store.get(event).add(callback);
+  }
+};
+
+let csmCallbacks = new CallbackStore()
+  , camCallbacks = new CallbackStore()
+  , scnCallbacks = new CallbackStore()
+  , storesMap = {
+      CSM_EVENTS: csmCallbacks,
+      CAM_EVENTS: camCallbacks,
+      SCN_EVENTS: scnCallbacks
+    }
+  ;
+
+
+/* ---------- */
+
+
+function isOff(m){
+  console.error(`Group of handlers is disabled, '${m}' method could no longer be used`);
+};
+
+class EventGroup {
+  constructor(){
+    this._ids = new Set();
+  }
+
+  on(event, clb) {
+    if (!isString(event) || !isFunction(clb)){
+      console.error('Invalid params');
+      return this;
+    }
+
+    let store = null;
+
+    for (let events in storesMap) {
+      if (events.has(event)) {
+        store = storesMap[events];
+        break;
+      }
+    }
+
+    if (store) {
+      clb[clbIdProp] = clbIdGen++;
+      store.put(event, clb);
+      this._ids.add(clbIdGen);
+    } else {
+      console.error(`Unknown event: ${event}`);
+    }
+
+    return this;
+  }
+
+  off(){
+    for (let events in storesMap) {
+      let store = storesMap[events];
+      store.forEach(clbs => {
+        clbs.forEach(clb => {
+          this._ids.has(clb[clbIdProp]) && clbs.delete(clb);
         });
-        }
-        });
-        this.off = null;
-        this.on = null;
-        return null;
-        }.bind(group);
+      });
+    }
 
-        return group;
-      } else {
-        push && this._group.push(clb._id);
-        return this;
-      }
-    };
+    this._ids.clear();
+    for (let m of ['on', 'off'])
+      this[m] = isOff.bind(this, m);
+
+    return null;
+  }
+};
 
 
-  };
+/* ---------- */
 
-    var core = _.extend({}, config.directConfig, {
-            cursor: {
-                _offset: null,
-                offset: function (){
-                    return this._offset;
-                },
-                cartesian: function(){
-                    return this._offset && core.viewer.camera.pickEllipsoid(this._offset);
-                },
-                degrees: function(){
-                    var cartesian = this.cartesian(),
-                        radians = cartesian && Cesium.Ellipsoid.WGS84.cartesianToCartographic(cartesian);
-                    return radians && [Cesium.Math.toDegrees(radians.longitude), Cesium.Math.toDegrees(radians.latitude)];
-                }
-            },
-            requestAnimationFrame: function(callback){
-                return (window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame)(callback);
-            },
-            cancelAnimationFrame: function(t){
-                return (window.cancelRequestAnimationFrame || window.mozCancelRequestAnimationFrame || window.webkitCancelRequestAnimationFrame)(t);
-            },
-            newTabUrl: function(url){
-                if (_.isString(url)) {
-                    var link = $('<a>', { target: '_blank', href: url })[0].click();
-                    delete link;
-                }
-                return this;
-            }
-        }, Events);
+let instance = null;
 
-    _.extend(core.viewer, {
-        ssccToggle: function(a){
-            var sscc = core.viewer.scene.screenSpaceCameraController;
-            sscc.enableRotate = a & (1 << 0);
-            sscc.enableTranslate = a & (1 << 1);
-            sscc.enableZoom = a & (1 << 2);
-        },
-        isPointVisible: function(point){
-            if (!point) return false;
-            var position = this.camera.position,
-                direction = Cesium.Cartesian3.subtract(point, position, new Cesium.Cartesian3()),
-                ray = new Cesium.Ray(position, direction),
-                intersection = Cesium.IntersectionTests.rayEllipsoid(ray, this.scene.globe.ellipsoid),
-                start = Cesium.Ray.getPoint(ray, intersection.start),
-                stop = Cesium.Ray.getPoint(ray, intersection.stop);
-            return Cesium.Cartesian3.distance(point, start) < Cesium.Cartesian3.distance(point, stop);
-        }
-    });
+class Processor {
+  constructor(CesiumGlobal, ViewerInstance){
+    if (!!instance)
+      return instance;
 
-    // CORE EVENTS
+    Cesium = CesiumGlobal;
+    Viewer = ViewerInstance;
 
+    new InstancesEvents(CesiumGlobal);
+  }
 
+  on(event, clb) {
+    return new EventGroup().on(event, clb);
+  }
+};
 
-    _.extend(core, {
-        pick: null,
-        events: {
+export default Processor;
 
-        }
-    });
-
-    // get significant content from pick
-    function gutPick(pick) {
-        return pick && ((_.isObject(pick.id) && pick.id) || pick.primitive) || {};
-    };
-
-    // get pick (hope unique haha) identificator
-    function pickID(pick){
-        return pick && (_.isObject(pick.id) ? pick.id.id : pick.id)
-    };
-    // id comparison alias
-    function eqlID(e1, e2){
-        return pickID(e1) === pickID(e2);
-    };
-
-    // process listeners
-    function processStack(pickObj, evt, ctx, args) {
-        var stack = pickObj && pickObj._listeners;
-        if (!stack) return;
-        _.each(stack.on[evt], function(clb){ clb.apply(ctx, args) });
-        _.each(stack.once[evt], function(clb){ clb.apply(ctx, args) });
-        stack.once[evt] = [];
-    };
-
-    // handle cursor position
-    function track(e){
-        var pick = null;
-        if (!core.drill) {
-            pick = core.viewer.scene.pick(e.endPosition);
-        } else {
-            pick = core.viewer.scene.drillPick(core.cursor.offset());
-            if (!pick.length) {
-                pick = null;
-            } else {
-                pick = _.max(pick, function(p){
-                    return (p.id || {}).zIndex || p.primitive.zIndex || 0;
-                });
-            }
-        }
-
-        core.cursor._offset = e.endPosition;
-
-        if (!eqlID(pick, core.pick)) {
-            if (core.pick) {
-                processStack(gutPick(core.pick), 'MOUSE_LEAVE', core.pick, e);
-                core.loop.off('_instanceFaceLoop');
-                processFace();
-            }
-
-            if (pick) {
-                var p = gutPick(pick);
-                processStack(p, 'MOUSE_ENTER', pick, e);
-                Core.loop(function _instanceFaceLoop(){
-                    !_.isEqual(faceProps.prev, getFace(p)) && processFace(p);
-                });
-            }
-
-            core.pick = pick;
-        }
-    };
-
-    // manage coordinates & current item on cursor moving
-    new Cesium.ScreenSpaceEventHandler(core.viewer.scene.canvas)
-              .setInputAction(track, Cesium.ScreenSpaceEventType['MOUSE_MOVE']);
-
+  
     // init cesium scrren handlers
     _.each(csmEvents, function(event){
         core.events._csmCallbacks[event] = [];
@@ -225,9 +190,6 @@
         core.events._camMove = false;
         _.each(core.events._camCallbacks['CAMERA_STOP'], function(clb){ clb.call(core) });
     });
-    $(window).on('resize', function(){
-        _.each(core.events._camCallbacks['CAMERA_MOVE'], function(clb){ clb.call(core) });
-    });
 
     // init cesium scene handlers
     _.each(scnEvents, function(event, alias){
@@ -238,60 +200,6 @@
         }, core.events._scnCallbacks[alias]);
     });
 
-    // init keyboard events
-    $(document).on('keyup', function(e){
-        var code = e.keyCode;
-        _.each(core.events._kbrdCallbacks[code], function(clb){ clb.call(core, e) });
-    });
-
-    // custom event system for cesium instances
-    _.each([
-        'Billboard',
-        'Entity',
-        'Model',
-        'Primitive',
-        'PointPrimitive'
-    ], function(o){
-        _.extend(Cesium[o].prototype, {
-            on: function(event, clb, once){
-                !this._listeners && (this._listeners = { on: {}, once: {} });
-                var l = this._listeners[true === once ? 'once' : 'on'];
-                !l[event] && (l[event] = []);
-                l[event].push(clb);
-                return this;
-            },
-            once: function(event, clb){
-                return this.on(event, clb, true);
-            },
-            off: function(event, clbName){
-                var self = this._listeners,
-                    t = 0;                      // clear all
-                _.isString(event) && (t = 1);   // clear by event name
-                _.isString(clbName) && (t = 2); // clear by function name (if exists)
-
-                _.each(['on', 'once'], function(l){
-                    _.each(self[l], function(clbs, evt){
-                        if (0 === t)
-                            self[l][evt] = [];
-                        else if (1 === t)
-                            evt === event && (self[l][evt] = []);
-                        else
-                            evt === event && (self[l][evt] = _.filter(clbs, function(clb){
-                                return clb.name !== clbName;
-                            }));
-                    });
-                });
-
-                return this;
-            },
-            extendWith: function(handler){
-                var obj = handler.call(this, this);
-                obj && _.extend(this, obj);
-                return this;
-            }
-        });
-    });
-
     function loop(){
         core.events._camMove && _.each(core.events._camCallbacks['CAMERA_MOVE'], function(clb){ clb.call(core) });
 
@@ -300,5 +208,3 @@
     loop();
 
     return core;
-
-});

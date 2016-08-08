@@ -1,187 +1,29 @@
 
-    var core = _.extend({}, config.directConfig, {
-            opts: params,
-            config: _.omit(config, 'directConfig'),
+import {isString, isFunction, isObject, isEqual} from 'underscore';
 
-            util: Util,
-            gamepad: Gamepad,
-            storage: Storage,
-            components: {},
-            face: { set: function(){} },
+let 
 
-            drill: false,
-            cursor: {
-                _offset: null,
-                offset: function (){
-                    return this._offset;
-                },
-                cartesian: function(){
-                    return this._offset && core.viewer.camera.pickEllipsoid(this._offset);
-                },
-                degrees: function(){
-                    var cartesian = this.cartesian(),
-                        radians = cartesian && Cesium.Ellipsoid.WGS84.cartesianToCartographic(cartesian);
-                    return radians && [Cesium.Math.toDegrees(radians.longitude), Cesium.Math.toDegrees(radians.latitude)];
-                }
-            },
-            requestAnimationFrame: function(callback){
-                return (window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame)(callback);
-            },
-            cancelAnimationFrame: function(t){
-                return (window.cancelRequestAnimationFrame || window.mozCancelRequestAnimationFrame || window.webkitCancelRequestAnimationFrame)(t);
-            },
-            newTabUrl: function(url){
-                if (_.isString(url)) {
-                    var link = $('<a>', { target: '_blank', href: url })[0].click();
-                    delete link;
-                }
-                return this;
-            }
-        }, Events);
+function Processor {
+  constructor(CesiumGlobal, ViewerInstance){
+    Cesium = CesiumGlobal;
+    Viewer = ViewerInstance;
+  }
+
+  on(event, clb) {
+    return new EventGroup().on(event, clb);
+  }
+};
+
+export default Processor;
 
 
-    _.extend(core, {
-        viewer: new Cesium.Viewer('CSWidget', {
-            animation: core.opts.defTimeline,
-            baseLayerPicker: false,
-            creditContainer: 'CSCredits',
-            fullscreenButton: false,
-            homeButton: false,
-            imageryProvider: false,
-            infoBox: false,
-            navigationHelpButton: false,
-            selectionIndicator: false,
-            sceneModePicker: false,
-            timeline: core.opts.defTimeline
-        }),
-        // forced selection and tracking
-        select: function(ent, track){
-            _.isNull(ent) && (ent = undefined);
-            if (_.isUndefined(ent) || Cesium.defined(ent)) {
-                core.viewer.selectedEntity = ent;
-                (track || _.isUndefined(ent)) && (core.viewer.trackedEntity = ent);
-            }
-            return this;
-        }
-    });
 
-    core.viewer.canvas.id = 'CSWidgetCanvas';
 
-    _.extend(core.viewer, {
-        ssccToggle: function(a){
-            var sscc = core.viewer.scene.screenSpaceCameraController;
-            sscc.enableRotate = a & (1 << 0);
-            sscc.enableTranslate = a & (1 << 1);
-            sscc.enableZoom = a & (1 << 2);
-        },
-        isPointVisible: function(point){
-            if (!point) return false;
-            var position = this.camera.position,
-                direction = Cesium.Cartesian3.subtract(point, position, new Cesium.Cartesian3()),
-                ray = new Cesium.Ray(position, direction),
-                intersection = Cesium.IntersectionTests.rayEllipsoid(ray, this.scene.globe.ellipsoid),
-                start = Cesium.Ray.getPoint(ray, intersection.start),
-                stop = Cesium.Ray.getPoint(ray, intersection.stop);
-            return Cesium.Cartesian3.distance(point, start) < Cesium.Cartesian3.distance(point, stop);
-        }
-    });
 
-    // CORE EVENTS
-
-    var csmEvents = [
-            'LEFT_CLICK', 'LEFT_DOUBLE_CLICK', 'LEFT_DOWN', 'LEFT_UP', 'MOUSE_MOVE',
-            'RIGHT_CLICK', 'RIGHT_DOUBLE_CLICK', 'RIGHT_DOWN', 'RIGHT_UP', 'WHEEL'
-        ],
-        camEvents = [
-            'CAMERA_START', 'CAMERA_MOVE', 'CAMERA_STOP'
-        ],
-        scnEvents = {
-            'BEFORE_RENDER' : 'preRender',
-            'AFTER_RENDER'  : 'postRender',
-            'MORPH_START'   : 'morphStart',
-            'MORPH_COMPLETE': 'morphComplete'
-        },
-        kbrdEvents = {
-            'ESCAPE' : 27,
-            'ENTER'  : 13
-        },
-        clbID = 0,
-        faceProps = {
-            def: {
-                cursor: '',
-                hint: ''
-            },
-            prev: {}
-        };
-
-    _.extend(core, {
+_.extend(core, {
         pick: null,
         events: {
-            _csmEvents: csmEvents,
-            _csmCallbacks: {},
 
-            _camEvents: camEvents,
-            _camMove: false,
-            _camCallbacks: {},
-
-            _kbrdEvents: kbrdEvents,
-            _kbrdCallbacks: {},
-
-            _scnEvents: scnEvents,
-            _scnCallbacks: {},
-
-            on: function(event, clb){
-                if (!_.isString(event) || !_.isFunction(clb)){
-                    console.error('Invalid params');
-                    return this;
-                }
-                clb._id = clbID++;
-
-                var start_group = !('_group' in this),
-                    push = true;
-
-                if (_.contains(this._csmEvents, event)) {
-                    this._csmCallbacks[event].push(clb);
-                } else if (_.contains(this._camEvents, event)) {
-                    this._camCallbacks[event].push(clb);
-                } else if (event in this._scnEvents) {
-                    this._scnCallbacks[event].push(clb);
-                } else if (event in this._kbrdEvents) {
-                    var code = this._kbrdEvents[event],
-                        clbs = this._kbrdCallbacks;
-                    !clbs[code] && (clbs[code] = []);
-                    clbs[code].push(clb);
-                } else if (event === 'UNLOAD') {
-                    push = false;
-                    $(window).bind('beforeunload', clb);
-                } else {
-                    push = false;
-                    console.error('Unknown Core.event: ' + event);
-                }
-
-                if (start_group) {
-                    var group = _.extend({}, this, { _group: [] });
-                    push && group._group.push(clb._id);
-                    group.off = function(){
-                        var self = this;
-                        _.each(['_csmCallbacks', '_camCallbacks', '_kbrdCallbacks', '_scnCallbacks'], function(list){
-                            for (var evt in self[list]) {
-                                self[list][evt] = _.filter(self[list][evt], function(clb){
-                                    return !~self._group.indexOf(clb._id);
-                                });
-                            }
-                        });
-                        this.off = null;
-                        this.on = null;
-                        return null;
-                    }.bind(group);
-
-                    return group;
-                } else {
-                    push && this._group.push(clb._id);
-                    return this;
-                }
-            }
         }
     });
 
@@ -206,17 +48,6 @@
         _.each(stack.on[evt], function(clb){ clb.apply(ctx, args) });
         _.each(stack.once[evt], function(clb){ clb.apply(ctx, args) });
         stack.once[evt] = [];
-    };
-
-    // get visuals
-    function getFace(pickObj){
-        return _.pick(pickObj, _.keys(faceProps.def));
-    };
-
-    // update visuals state
-    function processFace(pickObj){
-        faceProps.prev = getFace(pickObj);
-        core.face.set(_.extend({}, faceProps.def, faceProps.prev));
     };
 
     // handle cursor position
@@ -260,48 +91,6 @@
     new Cesium.ScreenSpaceEventHandler(core.viewer.scene.canvas)
               .setInputAction(track, Cesium.ScreenSpaceEventType['MOUSE_MOVE']);
 
-    // init cesium scrren handlers
-    _.each(csmEvents, function(event){
-        core.events._csmCallbacks[event] = [];
-        new Cesium.ScreenSpaceEventHandler(core.viewer.scene.canvas).setInputAction(function() {
-            var args = arguments;
-            // general callbacks
-            _.each(core.events._csmCallbacks[event], function(clb){ clb.apply(core, args) });
-            // current pick callbacks
-            processStack(gutPick(core.pick), event, core.pick, args);
-        }, Cesium.ScreenSpaceEventType[event]);
-    });
-
-    // init camera events
-    _.each(camEvents, function(event){
-        core.events._camCallbacks[event] = [];
-    });
-    core.viewer.camera.moveStart.addEventListener(function(){
-        _.each(core.events._camCallbacks['CAMERA_START'], function(clb){ clb.call(core) });
-        core.events._camMove = true;
-    });
-    core.viewer.camera.moveEnd.addEventListener(function(){
-        core.events._camMove = false;
-        _.each(core.events._camCallbacks['CAMERA_STOP'], function(clb){ clb.call(core) });
-    });
-    $(window).on('resize', function(){
-        _.each(core.events._camCallbacks['CAMERA_MOVE'], function(clb){ clb.call(core) });
-    });
-
-    // init cesium scene handlers
-    _.each(scnEvents, function(event, alias){
-        core.events._scnCallbacks[alias] = [];
-        core.viewer.scene[event].addEventListener(function() {
-            var args = arguments;
-            _.each(this, function(clb){ clb.apply(core, args) });
-        }, core.events._scnCallbacks[alias]);
-    });
-
-    // init keyboard events
-    $(document).on('keyup', function(e){
-        var code = e.keyCode;
-        _.each(core.events._kbrdCallbacks[code], function(clb){ clb.call(core, e) });
-    });
 
     // custom event system for cesium instances
     _.each([
@@ -350,14 +139,3 @@
             }
         });
     });
-
-    function loop(){
-        core.events._camMove && _.each(core.events._camCallbacks['CAMERA_MOVE'], function(clb){ clb.call(core) });
-
-        core.requestAnimationFrame(loop);
-    };
-    loop();
-
-    return core;
-
-});

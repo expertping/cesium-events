@@ -21,5 +21,8 @@
   "bugs": {
     "url": "https://github.com/keann/cesium-events/issues"
   },
-  "homepage": "https://github.com/keann/cesium-events#readme"
+  "homepage": "https://github.com/keann/cesium-events#readme",
+  "devDependencies": {
+    "underscore": "^1.8.3"
+  }
 }
