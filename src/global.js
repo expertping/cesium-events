@@ -39,22 +39,6 @@ let Cesium = null
   , Viewer = null
   ;
 
-let cursor = {
-  _offset: null,
-  get offset(){
-    return this._offset;
-  },
-  get cartesian(){
-    var offset = this.offset;
-    return offset && core.viewer.camera.pickEllipsoid(offset);
-  },
-  get degrees(){
-    var cartesian = this.cartesian
-      , radians = cartesian && Cesium.Ellipsoid.WGS84.cartesianToCartographic(cartesian);
-    return radians && [Cesium.Math.toDegrees(radians.longitude), Cesium.Math.toDegrees(radians.latitude)];
-  }
-};
-
 
 /* ---------- */
 
@@ -64,7 +48,7 @@ class CallbackStore {
     this.store = new Map();
   }
 
-  take(event){
+  get(event){
     return this.store.get(event);
   }
 
@@ -90,7 +74,7 @@ let csmCallbacks = new CallbackStore()
 
 
 function isOff(m){
-  console.error(`Group of handlers is disabled, '${m}' method could no longer be used`);
+  throw new Error(`Group of handlers is disabled, '${m}' method could no longer be used`);
 };
 
 class EventGroup {
@@ -113,12 +97,12 @@ class EventGroup {
       }
     }
 
-    if (store) {
+    if (!store) {
+      console.error(`Unknown event: ${event}`);
+    } else {
       clb[clbIdProp] = clbIdGen++;
       store.put(event, clb);
       this._ids.add(clbIdGen);
-    } else {
-      console.error(`Unknown event: ${event}`);
     }
 
     return this;
@@ -145,9 +129,10 @@ class EventGroup {
 
 /* ---------- */
 
-let instance = null;
+let instance = null
+  , useDrill = null;
 
-class Processor {
+class Handler {
   constructor(CesiumGlobal, ViewerInstance){
     if (!!instance)
       return instance;
@@ -155,17 +140,24 @@ class Processor {
     Cesium = CesiumGlobal;
     Viewer = ViewerInstance;
 
-    new InstancesEvents(CesiumGlobal);
+    useDrill = InstancesEvents(Cesium, Viewer);
   }
 
   on(event, clb) {
     return new EventGroup().on(event, clb);
   }
+
+  get drill(){
+    return useDrill();
+  }
+  set drill(v){
+    return useDrill(v);
+  }
 };
 
-export default Processor;
+export default Handler;
 
-  
+
     // init cesium scrren handlers
     _.each(csmEvents, function(event){
         core.events._csmCallbacks[event] = [];

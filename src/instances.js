@@ -1,141 +1,137 @@
 
-import {isString, isFunction, isObject, isEqual} from 'underscore';
+import {isString, isFunction, isObject, isEqual, max} from 'underscore';
 
-let 
+const lsnProp = Symbol('instanceListeners');
 
-function Processor {
-  constructor(CesiumGlobal, ViewerInstance){
-    Cesium = CesiumGlobal;
-    Viewer = ViewerInstance;
+let Cesium = null
+  , Scene = null
+  , useDrill = false,
+  , pick = null;
+
+let pointer = {
+      offset: null,
+      get cartesian(){
+        return this.offset && Scene.camera.pickEllipsoid(this.offset);
+      },
+      get degrees(){
+        var crt = this.cartesian
+          , radians = crt && Cesium.Ellipsoid.WGS84.cartesianToCartographic(crt);
+        return radians && [
+          Cesium.Math.toDegrees(radians.longitude),
+          Cesium.Math.toDegrees(radians.latitude)
+        ];
+      }
+    };
+
+let classes = [
+      'Billboard',
+      'Entity',
+      'Model',
+      'Primitive'
+    ];
+
+function Handler(CesiumGlobal, ViewerInstance) {
+  Cesium = CesiumGlobal;
+  Scene = ViewerInstance.scene;
+
+  new Cesium
+        .ScreenSpaceEventHandler(Scene.canvas)
+        .setInputAction(track, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+  for (let cl of classes) {
+    Object.assign(Cesium[cl].prototype), {
+      [lsnProp]: {
+        on:
+      },
+      on(event, clb, once){
+        !this[lsnProp] && (this[lsnProp] = { on: {}, once: {} });
+        var l = this._listeners[true === once ? 'once' : 'on'];
+        !l[event] && (l[event] = []);
+        l[event].push(clb);
+        return this;
+      },
+      once(event, clb){
+        return this.on(event, clb, true);
+      },
+      off(event, clbName){
+          var self = this._listeners,
+              t = 0;                      // clear all
+          _.isString(event) && (t = 1);   // clear by event name
+          _.isString(clbName) && (t = 2); // clear by function name (if exists)
+
+          _.each(['on', 'once'], function(l){
+              _.each(self[l], function(clbs, evt){
+                  if (0 === t)
+                      self[l][evt] = [];
+                  else if (1 === t)
+                      evt === event && (self[l][evt] = []);
+                  else
+                      evt === event && (self[l][evt] = _.filter(clbs, function(clb){
+                          return clb.name !== clbName;
+                      }));
+              });
+          });
+
+          return this;
+      }
+    });
   }
 
-  on(event, clb) {
-    return new EventGroup().on(event, clb);
+  return function drillToggle(v){
+    if (!v) return useDrill;
+    return useDrill = !!v;
   }
 };
 
-export default Processor;
+function gutPick(pick) {
+  return pick && ((isObject(pick.id) && pick.id) || pick.primitive) || {};
+};
 
+function pickID(pick){
+  return pick && (isObject(pick.id) ? pick.id.id : pick.id)
+};
 
+function eqlID(e1, e2){
+  return pickID(e1) === pickID(e2);
+};
 
+function processStack(pickObj, evt, ctx, args) {
+  let stack = pickObj && pickObj[lsnProp];
+  if (!stack) return;
 
+  for (let t of ['once', 'on']){
+    var clbs = stack[t].get(evt);
+    clbs &&
+  }
+  _.each(stack.on[evt], function(clb){ clb.apply(ctx, args) });
+  _.each(stack.once[evt], function(clb){ clb.apply(ctx, args) });
+  stack.once[evt] = [];
+};
 
-_.extend(core, {
-        pick: null,
-        events: {
+function track(e){
+  pointer.offset = e.endPosition;
+  let newPick = null;
 
-        }
-    });
+  if (!useDrill) {
+    newPick = Scene.pick(pointer.offset);
+  } else {
+    newPick = Scene.drillPick(pointer.offset);
+    if (!newPick.length) {
+      newPick = null;
+    } else {
+      newPick = max(newPick, p =>
+        (p.id || {}).zIndex || p.primitive.zIndex || 0
+      );
+    }
+  }
 
-    // get significant content from pick
-    function gutPick(pick) {
-        return pick && ((_.isObject(pick.id) && pick.id) || pick.primitive) || {};
-    };
+  if (!eqlID(newPick, pick)) {
+    Object.assign(e, { pointer });
+    pick && processStack(gutPick(pick), 'MOUSE_LEAVE', pick, [e]);
+    newPick && processStack(gutPick(newPick), 'MOUSE_ENTER', newPick, [e]);
+  }
 
-    // get pick (hope unique haha) identificator
-    function pickID(pick){
-        return pick && (_.isObject(pick.id) ? pick.id.id : pick.id)
-    };
-    // id comparison alias
-    function eqlID(e1, e2){
-        return pickID(e1) === pickID(e2);
-    };
+  pick = newPick;
+};
 
-    // process listeners
-    function processStack(pickObj, evt, ctx, args) {
-        var stack = pickObj && pickObj._listeners;
-        if (!stack) return;
-        _.each(stack.on[evt], function(clb){ clb.apply(ctx, args) });
-        _.each(stack.once[evt], function(clb){ clb.apply(ctx, args) });
-        stack.once[evt] = [];
-    };
-
-    // handle cursor position
-    function track(e){
-        var pick = null;
-        if (!core.drill) {
-            pick = core.viewer.scene.pick(e.endPosition);
-        } else {
-            pick = core.viewer.scene.drillPick(core.cursor.offset());
-            if (!pick.length) {
-                pick = null;
-            } else {
-                pick = _.max(pick, function(p){
-                    return (p.id || {}).zIndex || p.primitive.zIndex || 0;
-                });
-            }
-        }
-
-        core.cursor._offset = e.endPosition;
-
-        if (!eqlID(pick, core.pick)) {
-            if (core.pick) {
-                processStack(gutPick(core.pick), 'MOUSE_LEAVE', core.pick, e);
-                core.loop.off('_instanceFaceLoop');
-                processFace();
-            }
-
-            if (pick) {
-                var p = gutPick(pick);
-                processStack(p, 'MOUSE_ENTER', pick, e);
-                Core.loop(function _instanceFaceLoop(){
-                    !_.isEqual(faceProps.prev, getFace(p)) && processFace(p);
-                });
-            }
-
-            core.pick = pick;
-        }
-    };
-
-    // manage coordinates & current item on cursor moving
-    new Cesium.ScreenSpaceEventHandler(core.viewer.scene.canvas)
-              .setInputAction(track, Cesium.ScreenSpaceEventType['MOUSE_MOVE']);
-
-
-    // custom event system for cesium instances
-    _.each([
-        'Billboard',
-        'Entity',
-        'Model',
-        'Primitive',
-        'PointPrimitive'
-    ], function(o){
-        _.extend(Cesium[o].prototype, {
-            on: function(event, clb, once){
-                !this._listeners && (this._listeners = { on: {}, once: {} });
-                var l = this._listeners[true === once ? 'once' : 'on'];
-                !l[event] && (l[event] = []);
-                l[event].push(clb);
-                return this;
-            },
-            once: function(event, clb){
-                return this.on(event, clb, true);
-            },
-            off: function(event, clbName){
-                var self = this._listeners,
-                    t = 0;                      // clear all
-                _.isString(event) && (t = 1);   // clear by event name
-                _.isString(clbName) && (t = 2); // clear by function name (if exists)
-
-                _.each(['on', 'once'], function(l){
-                    _.each(self[l], function(clbs, evt){
-                        if (0 === t)
-                            self[l][evt] = [];
-                        else if (1 === t)
-                            evt === event && (self[l][evt] = []);
-                        else
-                            evt === event && (self[l][evt] = _.filter(clbs, function(clb){
-                                return clb.name !== clbName;
-                            }));
-                    });
-                });
-
-                return this;
-            },
-            extendWith: function(handler){
-                var obj = handler.call(this, this);
-                obj && _.extend(this, obj);
-                return this;
-            }
-        });
-    });
+export default Handler;
