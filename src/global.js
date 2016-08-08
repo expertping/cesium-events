@@ -1,25 +1,25 @@
 
-  const CSM_EVENTS = [
+  const CSM_EVENTS = new Set([
           'LEFT_CLICK', 'LEFT_DOUBLE_CLICK', 'LEFT_DOWN', 'LEFT_UP', 'MOUSE_MOVE',
           'RIGHT_CLICK', 'RIGHT_DOUBLE_CLICK', 'RIGHT_DOWN', 'RIGHT_UP', 'WHEEL'
-        ]
-      , CAM_EVENTS = [
+        ])
+      , CAM_EVENTS = new Set([
           'CAMERA_START', 'CAMERA_MOVE', 'CAMERA_STOP'
-        ]
-      , SCN_EVENTS = {
-          'BEFORE_RENDER' : 'preRender',
-          'AFTER_RENDER'  : 'postRender',
-          'MORPH_START'   : 'morphStart',
-          'MORPH_COMPLETE': 'morphComplete'
-        };
+        ])
+      , SCN_EVENTS = new Map([
+          ['BEFORE_RENDER', 'preRender'],
+          ['AFTER_RENDER', 'postRender'],
+          ['MORPH_START', 'morphStart'],
+          ['MORPH_COMPLETE', 'morphComplete']
+        ]);
 
   let clbID = 0;
 
   class Events(CesiumGlobal, ViewerInstance) {
-    this._csmCallbacks = {};
-    this._scnCallbacks = {};
-    this._camMove = false;
-    this._camCallbacks = {};
+    let csmCallbacks = {}
+      , scnCallbacks = {}
+      , camCallbacks = {}
+      , camMove = false;
 
     on(event, clb) => {
       if (!_.isString(event) || !_.isFunction(clb)){
@@ -28,7 +28,7 @@
       }
       clb._id = clbID++;
 
-      let start_group = !('_group' in this)
+      let startGroup = !('_group' in this)
         , push = true;
 
       if (_.contains(this._csmEvents, event)) {
@@ -50,7 +50,7 @@
       console.error('Unknown Core.event: ' + event);
       }
 
-      if (start_group) {
+      if (startGroup) {
         var group = _.extend({}, this, { _group: [] });
         push && group._group.push(clb._id);
         group.off = function(){
