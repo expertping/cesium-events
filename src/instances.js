@@ -13,9 +13,12 @@ let pointer = {
       get cartesian(){
         return this.offset && Scene.camera.pickEllipsoid(this.offset);
       },
+      get cartographic(){
+        var crt = this.cartesian;
+        return crt && Cesium.Ellipsoid.WGS84.cartesianToCartographic(crt);
+      },
       get degrees(){
-        var crt = this.cartesian
-          , radians = crt && Cesium.Ellipsoid.WGS84.cartesianToCartographic(crt);
+        var radians = this.cartographic;
         return radians && [
           Cesium.Math.toDegrees(radians.longitude),
           Cesium.Math.toDegrees(radians.latitude)
