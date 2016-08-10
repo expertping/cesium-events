@@ -1,5 +1,6 @@
 
 import {isString, isFunction} from 'underscore';
+import CallbackStore from './store';
 import InstancesEvents from './instances';
 
 const CSM_EVENTS = new Set([
@@ -17,47 +18,13 @@ const CSM_EVENTS = new Set([
       ])
     ;
 
-const requestAnimationFrame = function(callback){
-        return (window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame)(callback);
-      }
-    , cancelAnimationFrame = function(t){
-        return (window.cancelRequestAnimationFrame || window.mozCancelRequestAnimationFrame || window.webkitCancelRequestAnimationFrame)(t);
-      }
-    ;
-
 const clbIdProp = Symbol('callbackID');
-
-
-/* ---------- */
-
-
-let clbIdGen = 0
-  , camMove = false
-  ;
 
 let Cesium = null
   , Viewer = null
+  , clbIdGen = 0
+  , camMove = false
   ;
-
-
-/* ---------- */
-
-
-class CallbackStore {
-  constructor(){
-    this.store = new Map();
-  }
-
-  get(event){
-    return this.store.get(event);
-  }
-
-  put(event, callback){
-    if (!this.store.has(event))
-      this.store.set(event, new Set());
-    return this.store.get(event).add(callback);
-  }
-};
 
 let csmCallbacks = new CallbackStore()
   , camCallbacks = new CallbackStore()
@@ -129,10 +96,9 @@ class EventGroup {
 
 /* ---------- */
 
-let instance = null
-  , useDrill = null;
+let instance = null;
 
-class Handler {
+export default class Events {
   constructor(CesiumGlobal, ViewerInstance){
     if (!!instance)
       return instance;
@@ -140,63 +106,49 @@ class Handler {
     Cesium = CesiumGlobal;
     Viewer = ViewerInstance;
 
-    useDrill = InstancesEvents(Cesium, Viewer);
+    let IE = InstancesEvents.init(Cesium, Viewer);
+
+    this.drill = IE.drill;
+
+    CSM_EVENTS.forEach(event => {
+      csmCallbacks.store.set(event, new Set());
+      new Cesium
+            .ScreenSpaceEventHandler(Viewer.scene.canvas)
+            .setInputAction((...args) => {
+              csmCallbacks.get(event).forEach(clb => clb.apply(Viewer, args));
+              IE.processEvent(event, args);
+            }, Cesium.ScreenSpaceEventType[event]);
+    });
+
+    CAM_EVENTS.forEach(event => {
+      camCallbacks.store.set(event, new Set());
+    });
+    with (Viewer.camera) {
+      moveStart.addEventListener((...args) => {
+        camCallbacks.get('CAMERA_START').forEach(clb => clb.apply(Viewer, args));
+        camMove = true;
+      });
+      moveEnd.addEventListener((...args) => {
+        camMove = false;
+        camCallbacks.get('CAMERA_STOP').forEach(clb => clb.apply(Viewer, args));
+      });
+    }
+    function loop(){
+      camMove && camCallbacks.get('CAMERA_MOVE').forEach(clb => clb.call(Viewer));
+      Cesium.requestAnimationFrame(loop);
+    };
+    loop();
+
+    SCN_EVENTS.forEach((alias, event) => {
+      scnCallbacks.store.set(alias, new Set());
+      Viewer.scene[event]
+            .addEventListener((...args) => {
+              this.forEach(clb => clb.apply(Viewer, args));
+            }, scnCallbacks.get(alias));
+    });
   }
 
   on(event, clb) {
     return new EventGroup().on(event, clb);
   }
-
-  get drill(){
-    return useDrill();
-  }
-  set drill(v){
-    return useDrill(v);
-  }
 };
-
-export default Handler;
-
-
-    // init cesium scrren handlers
-    _.each(csmEvents, function(event){
-        core.events._csmCallbacks[event] = [];
-        new Cesium.ScreenSpaceEventHandler(core.viewer.scene.canvas).setInputAction(function() {
-            var args = arguments;
-            // general callbacks
-            _.each(core.events._csmCallbacks[event], function(clb){ clb.apply(core, args) });
-            // current pick callbacks
-            processStack(gutPick(core.pick), event, core.pick, args);
-        }, Cesium.ScreenSpaceEventType[event]);
-    });
-
-    // init camera events
-    _.each(camEvents, function(event){
-        core.events._camCallbacks[event] = [];
-    });
-    core.viewer.camera.moveStart.addEventListener(function(){
-        _.each(core.events._camCallbacks['CAMERA_START'], function(clb){ clb.call(core) });
-        core.events._camMove = true;
-    });
-    core.viewer.camera.moveEnd.addEventListener(function(){
-        core.events._camMove = false;
-        _.each(core.events._camCallbacks['CAMERA_STOP'], function(clb){ clb.call(core) });
-    });
-
-    // init cesium scene handlers
-    _.each(scnEvents, function(event, alias){
-        core.events._scnCallbacks[alias] = [];
-        core.viewer.scene[event].addEventListener(function() {
-            var args = arguments;
-            _.each(this, function(clb){ clb.apply(core, args) });
-        }, core.events._scnCallbacks[alias]);
-    });
-
-    function loop(){
-        core.events._camMove && _.each(core.events._camCallbacks['CAMERA_MOVE'], function(clb){ clb.call(core) });
-
-        core.requestAnimationFrame(loop);
-    };
-    loop();
-
-    return core;
