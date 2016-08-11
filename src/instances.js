@@ -16,14 +16,14 @@ let Handler = {
   ],
   pointer: {
     offset: null,
-    get cartesian(){
+    get cartesian() {
       return this.offset && Scene.camera.pickEllipsoid(this.offset);
     },
-    get cartographic(){
+    get cartographic() {
       var crt = this.cartesian;
       return crt && Cesium.Ellipsoid.WGS84.cartesianToCartographic(crt);
     },
-    get degrees(){
+    get degrees() {
       var radians = this.cartographic;
       return radians && [
         Cesium.Math.toDegrees(radians.longitude),
@@ -35,10 +35,10 @@ let Handler = {
   pick: null,
   _drill: false,
 
-  get drill(){
+  get drill() {
     return this._drill;
   },
-  set drill(v){
+  set drill(v) {
     this._drill = !!v;
   },
 
@@ -53,7 +53,7 @@ let Handler = {
     for (let cl of classes) {
       Object.assign(Cesium[cl].prototype), {
         [lsnProp]: null,
-        on(event, clb, once){
+        on(event, clb, once) {
           !this[lsnProp] && (this[lsnProp] = {
             on: new CallbackStore(),
             once: new CallbackStore()
@@ -62,10 +62,10 @@ let Handler = {
           store.put(event, clb);
           return this;
         },
-        once(event, clb){
+        once(event, clb) {
           return this.on(event, clb, true);
         },
-        off(event, name){
+        off(event, name) {
           for (let t of ['once', 'on']){
             this[lsnProp][t].clear(event, name);
           }
@@ -77,11 +77,11 @@ let Handler = {
     return this;
   },
 
-  processEvent(event, args){
+  processEvent(event, args) {
     processStack(gutPick(this.pick), event, this.pick, args);
   },
 
-  track(e){
+  track(e) {
     this.pointer.offset = e.endPosition;
     let pick = null,
         pointer = this.pointer;
@@ -113,7 +113,7 @@ function processStack(pickObj, evt, ctx, args) {
   let stack = pickObj && pickObj[lsnProp];
   if (!stack) return;
 
-  for (let t of ['once', 'on']){
+  for (let t of ['once', 'on']) {
     var clbs = stack[t].get(evt);
     clbs.forEach(clb => { clb.apply(ctx, args) });
   }
@@ -125,11 +125,11 @@ function gutPick(pick) {
   return pick && ((isObject(pick.id) && pick.id) || pick.primitive) || {};
 };
 
-function pickID(pick){
+function pickID(pick) {
   return pick && (isObject(pick.id) ? pick.id.id : pick.id)
 };
 
-function eqlID(e1, e2){
+function eqlID(e1, e2) {
   return pickID(e1) === pickID(e2);
 };
 

@@ -40,7 +40,7 @@ let csmCallbacks = new CallbackStore()
 /* ---------- */
 
 
-function isOff(m){
+function isOff(m) {
   throw new Error(`Group of handlers is disabled, '${m}' method could no longer be used`);
 };
 
@@ -50,7 +50,7 @@ class EventGroup {
   }
 
   on(event, clb) {
-    if (!isString(event) || !isFunction(clb)){
+    if (!isString(event) || !isFunction(clb)) {
       console.error('Invalid params');
       return this;
     }
@@ -75,7 +75,7 @@ class EventGroup {
     return this;
   }
 
-  off(){
+  off() {
     for (let events in storesMap) {
       let store = storesMap[events];
       store.forEach(clbs => {
@@ -99,7 +99,7 @@ class EventGroup {
 let instance = null;
 
 export default class Events {
-  constructor(CesiumGlobal, ViewerInstance){
+  constructor(CesiumGlobal, ViewerInstance) {
     if (!!instance)
       return instance;
 
@@ -133,11 +133,11 @@ export default class Events {
         camCallbacks.get('CAMERA_STOP').forEach(clb => clb.apply(Viewer, args));
       });
     }
-    function loop(){
+    function camLoop() {
       camMove && camCallbacks.get('CAMERA_MOVE').forEach(clb => clb.call(Viewer));
       Cesium.requestAnimationFrame(loop);
     };
-    loop();
+    camLoop();
 
     SCN_EVENTS.forEach((alias, event) => {
       scnCallbacks.store.set(alias, new Set());
