@@ -1,3 +1,1 @@
 # cesium-events
-
-And yes, currently in development...
